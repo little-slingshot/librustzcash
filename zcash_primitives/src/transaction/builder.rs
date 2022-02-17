@@ -196,13 +196,12 @@ impl SaplingOutput {
 #[cfg(feature = "transparent-inputs")]
 struct TransparentInputInfo {
     sk: secp256k1::SecretKey,
-    pubkey: [u8; secp256k1::constants::PUBLIC_KEY_SIZE],
+    pubkey: [u8; secp256k1::util::COMPRESSED_PUBLIC_KEY_SIZE],
     coin: TxOut,
 }
 
 #[cfg(feature = "transparent-inputs")]
 struct TransparentInputs {
-    secp: secp256k1::Secp256k1<secp256k1::SignOnly>,
     inputs: Vec<TransparentInputInfo>,
 }
 
@@ -210,7 +209,6 @@ struct TransparentInputs {
 impl Default for TransparentInputs {
     fn default() -> Self {
         TransparentInputs {
-            secp: secp256k1::Secp256k1::gen_new(),
             inputs: Default::default(),
         }
     }
@@ -230,7 +228,7 @@ impl TransparentInputs {
         // Ensure that the RIPEMD-160 digest of the public key associated with the
         // provided secret key matches that of the address to which the provided
         // output may be spent.
-        let pubkey = secp256k1::PublicKey::from_secret_key(&self.secp, &sk).serialize();
+        let pubkey = secp256k1::PublicKey::from_secret_key(&sk).serialize_compressed();
         match coin.script_pubkey.address() {
             Some(TransparentAddress::PublicKey(hash)) => {
                 use ripemd160::Ripemd160;
@@ -278,11 +276,13 @@ impl TransparentInputs {
                 SignableInput::transparent(i, &info.coin.script_pubkey, info.coin.value),
             ));
 
-            let msg = secp256k1::Message::from_slice(&sighash).expect("32 bytes");
-            let sig = self.secp.sign(&msg, &info.sk);
+            // let msg = secp256k1::Message::from_slice(&sighash).expect("32 bytes");
+            // let sig = self.secp.sign(&msg, &info.sk);
+            let msg = secp256k1::Message::parse_slice(&sighash).expect("32 bytes");
+            let (sig, _) = secp256k1::sign(&msg, &info.sk);
 
             // Signature has to have "SIGHASH_ALL" appended to it
-            let mut sig_bytes: Vec<u8> = sig.serialize_der()[..].to_vec();
+            let mut sig_bytes: Vec<u8> = sig.serialize_der().as_ref().to_vec();
             sig_bytes.extend(&[SIGHASH_ALL as u8]);
 
             // P2PKH scriptSig
